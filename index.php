@@ -145,6 +145,68 @@ if (isset($_GET['action'])) {
     }
 }
 
+// --- MENANGANI AKSI BACKUP & CLEANUP ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['page']) && $_POST['page'] === 'backup_cleanup') {
+    $action = $_POST['action'] ?? '';
+    
+    if ($action === 'delete_selected') {
+        // Delete selected batches
+        $selected_batches = $_POST['selected_batches'] ?? [];
+        if (empty($selected_batches)) {
+            header("Location: index.php?page=backup_cleanup&status=no_selection");
+            exit();
+        }
+        
+        try {
+            $pdo->beginTransaction();
+            
+            // Delete outgoing transactions first (foreign key constraint)
+            $placeholders = str_repeat('?,', count($selected_batches) - 1) . '?';
+            $stmt_outgoing = $pdo->prepare("DELETE FROM outgoing_transactions WHERE incoming_transaction_id IN ($placeholders)");
+            $stmt_outgoing->execute($selected_batches);
+            
+            // Delete incoming transactions
+            $stmt_incoming = $pdo->prepare("DELETE FROM incoming_transactions WHERE id IN ($placeholders)");
+            $stmt_incoming->execute($selected_batches);
+            
+            $pdo->commit();
+            header("Location: index.php?page=backup_cleanup&status=delete_success");
+            exit();
+        } catch (PDOException $e) {
+            $pdo->rollBack();
+            header("Location: index.php?page=backup_cleanup&status=error_delete");
+            exit();
+        }
+    } elseif ($action === 'delete_single') {
+        // Delete single batch
+        $batch_id = (int)($_POST['batch_id'] ?? 0);
+        if ($batch_id <= 0) {
+            header("Location: index.php?page=backup_cleanup&status=error_delete");
+            exit();
+        }
+        
+        try {
+            $pdo->beginTransaction();
+            
+            // Delete outgoing transactions first
+            $stmt_outgoing = $pdo->prepare("DELETE FROM outgoing_transactions WHERE incoming_transaction_id = ?");
+            $stmt_outgoing->execute([$batch_id]);
+            
+            // Delete incoming transaction
+            $stmt_incoming = $pdo->prepare("DELETE FROM incoming_transactions WHERE id = ?");
+            $stmt_incoming->execute([$batch_id]);
+            
+            $pdo->commit();
+            header("Location: index.php?page=backup_cleanup&status=delete_success");
+            exit();
+        } catch (PDOException $e) {
+            $pdo->rollBack();
+            header("Location: index.php?page=backup_cleanup&status=error_delete");
+            exit();
+        }
+    }
+}
+
 // --- MENANGANI PENGIRIMAN FORM (METHOD POST) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['form_type'])) {
     // CSRF validation for all POST forms
@@ -686,7 +748,7 @@ $active_page = $page;
         <main class="main-content">
             <div class="content-wrapper">
                 <?php
-                $allowed_pages = ['beranda', 'daftar_produk', 'barang_masuk', 'barang_keluar', 'laporan', 'report_stock', 'stock_jalur', 'unloading', 'opname_minyak'];
+                $allowed_pages = ['beranda', 'daftar_produk', 'barang_masuk', 'barang_keluar', 'laporan', 'report_stock', 'stock_jalur', 'unloading', 'opname_minyak', 'backup_cleanup'];
                 if (in_array($page, $allowed_pages) && file_exists($page . '_content.php')) {
                     include $page . '_content.php';
                 } else {
