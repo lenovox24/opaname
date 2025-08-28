@@ -3,11 +3,6 @@ require_once __DIR__ . '/security_bootstrap.php';
 require_auth();
 include 'koneksi.php';
 
-// Set error handling
-set_error_handler(function($severity, $message, $file, $line) {
-    throw new ErrorException($message, 0, $severity, $file, $line);
-});
-
 try {
     $type = $_GET['type'] ?? 'all';
     $format = $_GET['format'] ?? 'json';
@@ -30,26 +25,20 @@ try {
             
         case 'all':
         default:
-            // Simplified query untuk batch habis
-            $stmt = $pdo->query("
-                SELECT i.id 
-                FROM incoming_transactions i 
-                WHERE i.id NOT IN (
-                    SELECT DISTINCT incoming_transaction_id 
-                    FROM outgoing_transactions 
-                    WHERE incoming_transaction_id IS NOT NULL
-                )
-                OR i.id IN (
-                    SELECT i2.id
-                    FROM incoming_transactions i2
-                    LEFT JOIN outgoing_transactions o2 ON i2.id = o2.incoming_transaction_id
-                    GROUP BY i2.id
-                    HAVING COALESCE(SUM(o2.quantity_kg), 0) >= i2.quantity_kg
-                       AND COALESCE(SUM(o2.quantity_sacks), 0) >= i2.quantity_sacks
-                )
-                LIMIT 100
-            ");
-            $batch_ids = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
+            // Query untuk batch habis - disederhanakan
+            $sql = "SELECT i.id, i.quantity_kg, i.quantity_sacks,
+                           COALESCE(SUM(o.quantity_kg), 0) as used_kg,
+                           COALESCE(SUM(o.quantity_sacks), 0) as used_sacks
+                    FROM incoming_transactions i
+                    LEFT JOIN outgoing_transactions o ON i.id = o.incoming_transaction_id
+                    GROUP BY i.id, i.quantity_kg, i.quantity_sacks
+                    HAVING (i.quantity_kg - COALESCE(SUM(o.quantity_kg), 0)) <= 0 
+                       AND (i.quantity_sacks - COALESCE(SUM(o.quantity_sacks), 0)) <= 0
+                    ORDER BY i.id DESC
+                    LIMIT 100";
+            $stmt = $pdo->query($sql);
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $batch_ids = array_column($results, 'id');
             break;
     }
 
@@ -162,6 +151,20 @@ try {
     echo json_encode([
         'status' => 'error',
         'message' => 'Backup gagal: ' . $e->getMessage(),
+        'file' => basename($e->getFile()),
+        'line' => $e->getLine(),
+        'type' => $_GET['type'] ?? 'unknown',
+        'debug_info' => [
+            'php_version' => PHP_VERSION,
+            'timestamp' => date('Y-m-d H:i:s')
+        ]
+    ], JSON_PRETTY_PRINT);
+} catch (Error $e) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(500);
+    echo json_encode([
+        'status' => 'fatal_error',
+        'message' => 'Fatal error: ' . $e->getMessage(),
         'file' => basename($e->getFile()),
         'line' => $e->getLine()
     ], JSON_PRETTY_PRINT);
