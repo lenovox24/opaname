@@ -132,8 +132,8 @@ if (!empty($desc_q)) {
     $params[':desc'] = '%' . $desc_q . '%';
 }
 
-// Order by document_number and description untuk grouping auto merge
-$sql .= " ORDER BY t.document_number, t.description, t.transaction_date, t.created_at";
+// Order by urutan input (created_at) untuk konsistensi dari awal input
+$sql .= " ORDER BY t.transaction_date ASC, t.created_at ASC";
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
