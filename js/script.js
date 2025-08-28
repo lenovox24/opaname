@@ -1471,14 +1471,34 @@ document.addEventListener("DOMContentLoaded", () => {
       if (normalItems.length === 0) {
         itemsListTbody.innerHTML =
           '<tr><td colspan="6" class="text-center text-muted">Belum ada item yang ditambahkan.</td></tr>';
+        // Update summary for empty state
+        const summaryEl = document.getElementById('outgoing_items_summary');
+        if (summaryEl) {
+          summaryEl.innerHTML = '<small class="text-muted">Belum ada item yang ditambahkan</small>';
+        }
         return;
       }
       itemsListTbody.innerHTML = '';
       normalItems.forEach((item, index) => {
-        const row = `<tr>
+        // Find the original index in outgoingItems array for delete function
+        const originalIndex = outgoingItems.findIndex(originalItem => 
+          originalItem.product_id === item.product_id && 
+          originalItem.incoming_id === item.incoming_id &&
+          originalItem.batch_number === item.batch_number
+        );
+        
+        const mergeIndicator = item.is_merged ? 
+          `<span class="badge bg-info text-white ms-1" title="Item ini merupakan gabungan ${item.merge_count} penambahan">
+            <i class="bi bi-layers me-1"></i>${item.merge_count}x
+          </span>` : '';
+        
+        const row = `<tr ${item.is_merged ? 'class="table-success"' : ''}>
           <td>${index + 1}</td>
           <td class="text-start">
-            <div class="fw-semibold text-primary">${item.product_name}</div>
+            <div class="fw-semibold text-primary d-flex align-items-center">
+              ${item.product_name}
+              ${mergeIndicator}
+            </div>
             <div class="d-flex align-items-center gap-2 mt-1">
               <small class="text-muted bg-light px-2 py-1 rounded">Kode: ${item.sku || "N/A"}</small>
               <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" data-copy="${item.sku || ""}" title="Copy Kode">
@@ -1489,22 +1509,57 @@ document.addEventListener("DOMContentLoaded", () => {
           <td><div class="d-flex align-items-center gap-1"><span>${item.batch_number}</span><button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" data-copy="${item.batch_number}" title="Copy Batch"><i class="bi bi-clipboard"></i></button></div></td>
           <td>
             <div class="d-flex align-items-center gap-1">
-              <span>${formatAngkaJS(item.qty_kg)}</span>
+              <span class="badge bg-primary fs-6">${formatAngkaJS(item.qty_kg)}</span>
               <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" data-copy="${formatAngkaJS(item.qty_kg)}" title="Copy Kg"><i class="bi bi-clipboard"></i></button>
             </div>
           </td>
           <td>
             <div class="d-flex align-items-center gap-1">
-              <span>${formatAngkaJS(item.qty_sak)}</span>
+              <span class="badge bg-secondary fs-6">${formatAngkaJS(item.qty_sak)}</span>
               <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" data-copy="${formatAngkaJS(item.qty_sak)}" title="Copy Sak"><i class="bi bi-clipboard"></i></button>
             </div>
           </td>
           <td>
-            <button type="button" class="btn btn-danger btn-sm" data-index="${index}"><i class="bi bi-trash3-fill"></i></button>
+            <button type="button" class="btn btn-danger btn-sm" data-original-index="${originalIndex}" title="Hapus Item"><i class="bi bi-trash3-fill"></i></button>
           </td>
         </tr>`;
         itemsListTbody.innerHTML += row;
       });
+    }
+
+    // Function to update hidden JSON field
+    function updateItemsJSON() {
+      if (hiddenJsonInput) {
+        hiddenJsonInput.value = JSON.stringify(outgoingItems);
+      }
+    }
+    
+    // Function to update items summary
+    function updateItemsSummary() {
+      const normalItems = (outgoingItems || []).filter(it => !(Number.parseFloat(it.lot_number || '0') > 0));
+      const mergedItems = normalItems.filter(it => it.is_merged);
+      const totalQtyKg = normalItems.reduce((sum, item) => sum + Number.parseFloat(item.qty_kg || 0), 0);
+      const totalQtySak = normalItems.reduce((sum, item) => sum + Number.parseFloat(item.qty_sak || 0), 0);
+      
+      // Update summary display if element exists
+      const summaryEl = document.getElementById('outgoing_items_summary');
+      if (summaryEl) {
+        summaryEl.innerHTML = `
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <small class="text-muted">
+                ${normalItems.length} item${normalItems.length !== 1 ? 's' : ''} total
+                ${mergedItems.length > 0 ? ` (${mergedItems.length} digabungkan)` : ''}
+              </small>
+            </div>
+            <div>
+              <small class="text-muted">
+                Total: <strong>${formatAngkaJS(totalQtyKg)} Kg</strong> / <strong>${formatAngkaJS(totalQtySak)} Sak</strong>
+              </small>
+            </div>
+          </div>
+        `;
+      }
     }
 
     addItemBtn.addEventListener("click", () => {
@@ -1571,16 +1626,61 @@ document.addEventListener("DOMContentLoaded", () => {
         const stdQty = Number.parseFloat(productOption.dataset.stdqty);
         const qtySakToAdd = stdQty > 0 ? qtyToAdd / stdQty : 0;
 
-        outgoingItems.push({
-          product_id: productOption.dataset.id,
-          product_name: productOption.value,
-          sku: productOption.dataset.sku,
-          incoming_id: batchOption.value,
-          batch_number: batchOption.dataset.batch_number,
-          qty_kg: qtyToAdd,
-          qty_sak: Number.parseFloat(qtySakToAdd.toFixed(2)),
-        });
+        // Cek apakah sudah ada item dengan product_id dan batch_number yang sama
+        const existingItemIndex = outgoingItems.findIndex(item => 
+          item.product_id === productOption.dataset.id && 
+          item.incoming_id === batchOption.value &&
+          item.batch_number === batchOption.dataset.batch_number
+        );
+
+        if (existingItemIndex !== -1) {
+          // Jika sudah ada, gabungkan qty
+          const existingItem = outgoingItems[existingItemIndex];
+          const newQtyKg = Number.parseFloat(existingItem.qty_kg) + qtyToAdd;
+          const newQtySak = Number.parseFloat(existingItem.qty_sak) + Number.parseFloat(qtySakToAdd.toFixed(2));
+          const mergeCount = (existingItem.merge_count || 1) + 1;
+          
+          outgoingItems[existingItemIndex] = {
+            ...existingItem,
+            qty_kg: newQtyKg,
+            qty_sak: Number.parseFloat(newQtySak.toFixed(2)),
+            merge_count: mergeCount,
+            is_merged: true
+          };
+          
+          // Show notification untuk merge
+          Swal.fire({
+            title: 'Item Digabungkan!',
+            html: `<div class="text-start">
+              <strong>${productOption.value}</strong><br>
+              <small class="text-muted">Batch: ${batchOption.dataset.batch_number}</small><br>
+              <small class="text-info"><i class="bi bi-layers me-1"></i>Penggabungan ke-${mergeCount}</small><br><br>
+              Qty baru: <strong>${formatAngkaJS(newQtyKg)} Kg</strong> / <strong>${formatAngkaJS(newQtySak)} Sak</strong>
+            </div>`,
+            icon: 'success',
+            timer: 2500,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+          });
+        } else {
+          // Jika belum ada, tambah item baru
+          outgoingItems.push({
+            product_id: productOption.dataset.id,
+            product_name: productOption.value,
+            sku: productOption.dataset.sku,
+            incoming_id: batchOption.value,
+            batch_number: batchOption.dataset.batch_number,
+            qty_kg: qtyToAdd,
+            qty_sak: Number.parseFloat(qtySakToAdd.toFixed(2)),
+            merge_count: 1,
+            is_merged: false
+          });
+        }
+        
         renderItemsTable();
+        updateItemsJSON(); // Update hidden JSON field
+        updateItemsSummary(); // Update items summary
         renderBatchDropdown(productOption.dataset.id);
       }
 
@@ -1608,12 +1708,41 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const deleteButton = e.target.closest("button");
-      if (deleteButton && deleteButton.dataset.index) {
-        const indexToRemove = Number.parseInt(deleteButton.dataset.index, 10);
+      if (deleteButton && deleteButton.dataset.originalIndex) {
+        const indexToRemove = Number.parseInt(deleteButton.dataset.originalIndex, 10);
         const itemToRemove = outgoingItems[indexToRemove];
-        outgoingItems.splice(indexToRemove, 1);
-        renderItemsTable();
-        renderBatchDropdown(itemToRemove.product_id);
+        
+        // Show confirmation dialog
+        Swal.fire({
+          title: 'Hapus Item?',
+          html: `<div class="text-start">
+            <strong>${itemToRemove.product_name}</strong><br>
+            <small class="text-muted">Batch: ${itemToRemove.batch_number}</small><br>
+            Qty: <strong>${formatAngkaJS(itemToRemove.qty_kg)} Kg</strong>
+          </div>`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#dc3545',
+          cancelButtonColor: '#6c757d',
+          confirmButtonText: 'Ya, Hapus!',
+          cancelButtonText: 'Batal'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            outgoingItems.splice(indexToRemove, 1);
+            renderItemsTable();
+            updateItemsJSON();
+            updateItemsSummary();
+            renderBatchDropdown(itemToRemove.product_id);
+            
+            Swal.fire({
+              title: 'Terhapus!',
+              text: 'Item berhasil dihapus dari daftar.',
+              icon: 'success',
+              timer: 1500,
+              showConfirmButton: false
+            });
+          }
+        });
       }
     });
 
@@ -1624,6 +1753,8 @@ document.addEventListener("DOMContentLoaded", () => {
       batchCache = {};
       originalDocInput.value = "";
       renderItemsTable();
+      updateItemsJSON();
+      updateItemsSummary();
       itemIncomingSelect.innerHTML =
         '<option value="">-- Pilih Barang dulu --</option>';
       itemIncomingSelect.disabled = true;
@@ -1714,8 +1845,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 normal.push({ ...it });
               }
             });
-            outgoingItems = normal.map((item, index) => ({ ...item }));
+            outgoingItems = normal.map((item, index) => ({ 
+              ...item, 
+              merge_count: item.merge_count || 1,
+              is_merged: item.is_merged || false
+            }));
             renderItemsTable();
+            updateItemsJSON();
+            updateItemsSummary();
             // Fill embedded 501 tab list
             embedded501Items = only501;
             renderEmbedded501List();

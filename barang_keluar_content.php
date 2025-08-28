@@ -770,6 +770,12 @@ foreach ($_GET as $key => $val) {
                                     </tbody>
                                 </table>
                             </div>
+                            <!-- Items Summary -->
+                            <div class="card-footer bg-light border-top">
+                                <div id="outgoing_items_summary" class="text-muted">
+                                    <small>Belum ada item yang ditambahkan</small>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
