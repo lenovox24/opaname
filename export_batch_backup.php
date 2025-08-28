@@ -1,44 +1,70 @@
 <?php
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 require_once __DIR__ . '/security_bootstrap.php';
 require_auth();
-include 'koneksi.php';
+
+try {
+    include 'koneksi.php';
+} catch (Exception $e) {
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]);
+    exit;
+}
 
 $type = $_GET['type'] ?? 'all';
 $batch_ids = [];
 
 // Determine which batches to backup
-switch ($type) {
-    case 'single':
-        if (isset($_GET['id']) && is_numeric($_GET['id'])) {
-            $batch_ids = [(int)$_GET['id']];
-        }
-        break;
-    case 'selected':
-        if (isset($_GET['ids'])) {
-            $ids = explode(',', $_GET['ids']);
-            $batch_ids = array_filter(array_map('intval', $ids));
-        }
-        break;
-    case 'all':
-    default:
-        // Get all empty batches
-        $sql_all_empty = "
-            SELECT i.id
-            FROM incoming_transactions i
-            LEFT JOIN outgoing_transactions o ON i.id = o.incoming_transaction_id
-            GROUP BY i.id
-            HAVING (i.quantity_kg - COALESCE(SUM(o.quantity_kg), 0)) <= 0 
-               AND (i.quantity_sacks - COALESCE(SUM(o.quantity_sacks), 0)) <= 0
-        ";
-        $stmt = $pdo->prepare($sql_all_empty);
-        $stmt->execute();
-        $batch_ids = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
-        break;
+try {
+    switch ($type) {
+        case 'single':
+            if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+                $batch_ids = [(int)$_GET['id']];
+            }
+            break;
+        case 'selected':
+            if (isset($_GET['ids'])) {
+                $ids = explode(',', $_GET['ids']);
+                $batch_ids = array_filter(array_map('intval', $ids));
+            }
+            break;
+        case 'all':
+        default:
+            // Get all empty batches - simplified query first
+            $sql_all_empty = "
+                SELECT i.id, i.quantity_kg, i.quantity_sacks,
+                       COALESCE(SUM(o.quantity_kg), 0) as used_kg,
+                       COALESCE(SUM(o.quantity_sacks), 0) as used_sacks
+                FROM incoming_transactions i
+                LEFT JOIN outgoing_transactions o ON i.id = o.incoming_transaction_id
+                GROUP BY i.id, i.quantity_kg, i.quantity_sacks
+                HAVING (i.quantity_kg - COALESCE(SUM(o.quantity_kg), 0)) <= 0 
+                   AND (i.quantity_sacks - COALESCE(SUM(o.quantity_sacks), 0)) <= 0
+            ";
+            $stmt = $pdo->prepare($sql_all_empty);
+            $stmt->execute();
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $batch_ids = array_column($results, 'id');
+            break;
+    }
+} catch (PDOException $e) {
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Query error: ' . $e->getMessage()]);
+    exit;
 }
 
 if (empty($batch_ids)) {
     header('Content-Type: application/json');
-    echo json_encode(['error' => 'Tidak ada batch yang dipilih untuk backup']);
+    echo json_encode([
+        'error' => 'Tidak ada batch yang dipilih untuk backup',
+        'debug' => [
+            'type' => $type,
+            'found_batches' => count($batch_ids)
+        ]
+    ]);
     exit;
 }
 
@@ -56,6 +82,11 @@ $backup_data = [
 ];
 
 try {
+    // Validate batch_ids array
+    if (!is_array($batch_ids) || empty($batch_ids)) {
+        throw new Exception('Invalid batch IDs array');
+    }
+
     // Get incoming transactions (batch data)
     $placeholders = str_repeat('?,', count($batch_ids) - 1) . '?';
     $sql_incoming = "
@@ -83,6 +114,8 @@ try {
 
     // Get unique products involved
     $product_ids = array_unique(array_column($backup_data['incoming_transactions'], 'product_id'));
+    $backup_data['products'] = [];
+    
     if (!empty($product_ids)) {
         $placeholders_products = str_repeat('?,', count($product_ids) - 1) . '?';
         $sql_products = "SELECT * FROM products WHERE id IN ($placeholders_products) ORDER BY product_name";
@@ -91,7 +124,8 @@ try {
         $backup_data['products'] = $stmt_products->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Calculate summary statistics
+    // Calculate summary statistics - with safety checks
+    $incoming_dates = array_column($backup_data['incoming_transactions'], 'transaction_date');
     $backup_data['summary'] = [
         'total_incoming_qty_kg' => array_sum(array_column($backup_data['incoming_transactions'], 'quantity_kg')),
         'total_incoming_qty_sacks' => array_sum(array_column($backup_data['incoming_transactions'], 'quantity_sacks')),
@@ -99,14 +133,18 @@ try {
         'total_outgoing_qty_sacks' => array_sum(array_column($backup_data['outgoing_transactions'], 'quantity_sacks')),
         'unique_products' => count($product_ids),
         'date_range' => [
-            'earliest' => min(array_column($backup_data['incoming_transactions'], 'transaction_date')),
-            'latest' => max(array_column($backup_data['incoming_transactions'], 'transaction_date'))
+            'earliest' => !empty($incoming_dates) ? min($incoming_dates) : null,
+            'latest' => !empty($incoming_dates) ? max($incoming_dates) : null
         ]
     ];
 
 } catch (PDOException $e) {
     header('Content-Type: application/json');
     echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+    exit;
+} catch (Exception $e) {
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'General error: ' . $e->getMessage()]);
     exit;
 }
 

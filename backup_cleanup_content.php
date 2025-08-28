@@ -255,7 +255,20 @@ function selectAllBatches() {
 
 // Backup all batches
 function backupAllBatches() {
-    window.open('export_batch_backup.php?type=all', '_blank');
+    Swal.fire({
+        title: 'Memproses Backup...',
+        text: 'Mengumpulkan data batch habis',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+    
+    // Gunakan endpoint backup yang telah diperbaiki
+    setTimeout(() => {
+        Swal.close();
+        window.open('export_batch_backup_v2.php?type=all&format=json', '_blank');
+    }, 500);
 }
 
 // Backup selected batches
@@ -265,12 +278,33 @@ function backupSelected() {
         Swal.fire('Peringatan', 'Pilih batch yang akan di-backup terlebih dahulu.', 'warning');
         return;
     }
-    window.open('export_batch_backup.php?type=selected&ids=' + selected.join(','), '_blank');
+    
+    Swal.fire({
+        title: 'Memproses Backup...',
+        text: `Mengumpulkan data ${selected.length} batch terpilih`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+    
+    setTimeout(() => {
+        Swal.close();
+        window.open('export_batch_backup_v2.php?type=selected&ids=' + selected.join(',') + '&format=json', '_blank');
+    }, 1000);
 }
 
 // Backup single batch
 function backupSingleBatch(id) {
-    window.open('export_batch_backup.php?type=single&id=' + id, '_blank');
+    Swal.fire({
+        title: 'Memproses Backup...',
+        text: 'Mengumpulkan data batch',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+    
+    setTimeout(() => {
+        Swal.close();
+        window.open('export_batch_backup_v2.php?type=single&id=' + id + '&format=json', '_blank');
+    }, 1000);
 }
 
 // Delete single batch with confirmation
