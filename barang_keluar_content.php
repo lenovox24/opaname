@@ -133,7 +133,7 @@ $page_num_501 = isset($_GET['page_num_501']) && is_numeric($_GET['page_num_501']
 $offset_501 = ($page_num_501 - 1) * $limit_501;
 
 $sql_base_501 = $sql_base . " AND t.lot_number > 0";
-$sql_count_501 = "SELECT COUNT(t.id) " . $sql_base_501;
+$sql_count_501 = "SELECT COUNT(*) FROM (SELECT 1 " . $sql_base_501 . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id) g";
 $stmt_count_501 = $pdo->prepare($sql_count_501);
 $stmt_count_501->execute($params);
 $total_rows_501 = (int)$stmt_count_501->fetchColumn();
@@ -143,7 +143,17 @@ $order_sql_501 = $sort_by === 'product_name'
     ? "p.product_name $sort_order, t.transaction_date DESC"
     : "t.transaction_date $sort_order, p.product_name ASC";
 
-$sql_501 = "SELECT t.*, p.product_name, p.sku " . $sql_base_501 . " ORDER BY $order_sql_501 LIMIT :limit501 OFFSET :offset501";
+$sql_501 = "SELECT 
+    t.transaction_date,
+    t.document_number,
+    t.description,
+    t.product_id,
+    p.product_name, p.sku,
+    MIN(t.id) AS id,
+    SUM(CASE WHEN t.lot_number IS NULL THEN 0 ELSE t.lot_number END) AS lot_total_501,
+    COUNT(DISTINCT t.incoming_transaction_id) AS batch_count_501,
+    CASE WHEN MIN(t.status) = MAX(t.status) THEN MIN(t.status) ELSE 'Mixed' END AS status_group_501
+" . $sql_base_501 . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id, p.product_name, p.sku ORDER BY $order_sql_501 LIMIT :limit501 OFFSET :offset501";
 $stmt_501 = $pdo->prepare($sql_501);
 foreach ($params as $key => $val) { $stmt_501->bindValue($key, $val); }
 $stmt_501->bindValue(':limit501', $limit_501, PDO::PARAM_INT);
@@ -264,7 +274,6 @@ $query_params = $_GET;
                             <th class="text-nowrap fw-bold">Qty (Sak)</th>
                             <th class="text-nowrap fw-bold">No. Dokumen</th>
                             <th class="text-start text-nowrap fw-bold">Keterangan</th>
-                            <th class="text-nowrap fw-bold">501 (Lot)</th>
                             <th class="text-nowrap fw-bold">Batch</th>
                             <th class="text-nowrap fw-bold">Status</th>
                             <th class="text-center text-nowrap fw-bold">Aksi</th>
@@ -273,7 +282,7 @@ $query_params = $_GET;
                     <tbody>
                         <?php if (empty($transactions)): ?>
                             <tr>
-                                <td colspan="11" class="text-center text-muted p-5">
+                                <td colspan="10" class="text-center text-muted p-5">
                                     <div class="empty-state">
                                         <i class="bi bi-inbox display-1 text-muted opacity-50"></i>
                                         <h5 class="mt-3 text-muted">Belum Ada Data Transaksi</h5>
@@ -321,10 +330,7 @@ $query_params = $_GET;
                                     <td class="text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($tx['description'] ?? '') ?>">
                                         <span class="text-muted"><?= htmlspecialchars($tx['description'] ?? '') ?></span>
                                     </td>
-                                    <!-- 501 (Lot) total -->
-                                    <td class="text-nowrap">
-                                        <span class="badge bg-warning text-dark fs-6"><?= formatAngkaUI($tx['sum_lot_number']) ?></span>
-                                    </td>
+                                    
                                     <!-- Batch -->
                                     <td class="text-truncate" style="max-width: 100px;">
                                         <?php if ((int)$tx['batch_count'] <= 1): ?>
@@ -498,15 +504,23 @@ $query_params = $_GET;
                                 <td class="text-nowrap"><span class="badge bg-light text-dark border"><?= date('d/m/Y', strtotime($row['transaction_date'])) ?></span></td>
                                 <td class="text-start"><div class="fw-semibold text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($row['product_name']) ?>"><?= htmlspecialchars($row['product_name']) ?></div></td>
                                 <td class="text-nowrap"><code class="bg-light px-2 py-1 rounded"><?= htmlspecialchars($row['sku']) ?></code></td>
-                                <td class="text-nowrap"><span class="badge bg-success fs-6"><?= formatAngkaUI($row['lot_number']) ?></span></td>
-                                <td class="text-nowrap"><span class="badge bg-info text-white"><?= htmlspecialchars($row['batch_number'] ?? '') ?></span></td>
+                                <td class="text-nowrap"><span class="badge bg-success fs-6"><?= formatAngkaUI($row['lot_total_501']) ?></span></td>
+                                <td class="text-truncate" style="max-width: 100px;">
+                                    <?php if ((int)($row['batch_count_501'] ?? 0) <= 1): ?>
+                                        <span class="badge bg-info text-white">Single</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-info text-white">Multiple (<?= (int)$row['batch_count_501'] ?>)</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="text-truncate" style="max-width: 140px;"><span class="text-primary fw-semibold" title="<?= htmlspecialchars($row['document_number']) ?>"><?= htmlspecialchars($row['document_number']) ?></span></td>
                                 <td class="text-truncate" style="max-width: 240px;" title="<?= htmlspecialchars($row['description'] ?? '') ?>"><span class="text-muted"><?= htmlspecialchars($row['description'] ?? '') ?></span></td>
                                 <td>
-                                    <?php if (($row['status'] ?? '') === 'Closed'): ?>
+                                    <?php if (($row['status_group_501'] ?? '') === 'Closed'): ?>
                                         <span class="badge bg-success rounded-pill px-3"><i class="bi bi-check-circle me-1"></i>Closed</span>
-                                    <?php else: ?>
+                                    <?php elseif (($row['status_group_501'] ?? '') === 'Pending'): ?>
                                         <span class="badge bg-warning text-dark rounded-pill px-3"><i class="bi bi-clock me-1"></i>Pending</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-secondary rounded-pill px-3" title="Terdapat kombinasi status dalam grup">Mixed</span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-center">
