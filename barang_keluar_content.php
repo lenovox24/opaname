@@ -501,7 +501,7 @@ $query_params = $_GET;
     <div class="card border-warning shadow-sm">
         <div class="card-header bg-warning text-dark">
             <div class="d-flex justify-content-between align-items-center">
-                <h6 class="mb-0 fw-bold"><i class="bi bi-calculator me-2"></i>Daftar Pengeluaran Sisa 501</h6>
+                <h6 class="mb-0 fw-bold"><i class="bi bi-list-ol me-2"></i>Daftar Pengeluaran Sisa 501</h6>
                 <small class="text-dark-50">Item dengan Lot (501) > 0</small>
             </div>
         </div>
@@ -539,7 +539,7 @@ $query_params = $_GET;
                                     <tr class="table-warning border-top border-3 border-warning">
                                         <td colspan="9" class="fw-bold py-3 bg-gradient-warning text-dark">
                                             <div class="d-flex align-items-center">
-                                                <i class="bi bi-calculator me-2"></i>
+                                                <i class="bi bi-file-earmark-check me-2"></i>
                                                 <span>Dokumen 501: <?= htmlspecialchars($current_document_501) ?></span>
                                                 <?php if (!empty($row['description'])): ?>
                                                     <span class="ms-3 opacity-75">
@@ -563,7 +563,7 @@ $query_params = $_GET;
                                 <td class="text-nowrap ps-4"><span class="badge bg-light text-dark border"><?= date('d/m/Y', strtotime($row['transaction_date'])) ?></span></td>
                                 <td class="text-start ps-4">
                                     <div class="fw-semibold text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($row['product_name']) ?>">
-                                        <i class="bi bi-calculator me-2 text-warning"></i>
+                                        <i class="bi bi-box me-2 text-warning"></i>
                                         <?= htmlspecialchars($row['product_name']) ?>
                                     </div>
                                 </td>
@@ -690,7 +690,7 @@ foreach ($_GET as $key => $val) {
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="tab-501" data-bs-toggle="tab" data-bs-target="#pane-501" type="button" role="tab" aria-controls="pane-501" aria-selected="false">
-                                <i class="bi bi-calculator me-1"></i>Pengeluaran 501
+                                <i class="bi bi-list-ul me-1"></i>Pengeluaran 501
                             </button>
                         </li>
                     </ul>
@@ -848,7 +848,7 @@ foreach ($_GET as $key => $val) {
                             <div class="card border-warning mb-4">
                                 <div class="card-header bg-warning text-dark">
                                     <h6 class="card-title fw-bold mb-0">
-                                        <i class="bi bi-calculator me-2"></i>Pengeluaran Sisa 501
+                                        <i class="bi bi-list-check me-2"></i>Pengeluaran Sisa 501
                                     </h6>
                                 </div>
                                 <div class="card-body">
@@ -879,7 +879,7 @@ foreach ($_GET as $key => $val) {
                                         </div>
                                         <div class="col-md-6">
                                             <label class="form-label fw-semibold">
-                                                <i class="bi bi-calculator me-1 text-success"></i>Sisa 501 Tersedia
+                                                <i class="bi bi-clipboard-data me-1 text-success"></i>Sisa 501 Tersedia
                                             </label>
                                             <div class="input-group">
                                                 <input type="text" class="form-control bg-light border-0 shadow-sm fw-bold text-success" id="keluar501_sisa_display_embedded" readonly placeholder="0.00">
