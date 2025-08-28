@@ -12,12 +12,18 @@ if (isset($_GET['status'])) {
         'error_backup' => 'Gagal membuat backup. Silakan coba lagi.',
         'error_delete' => 'Gagal menghapus batch. Silakan coba lagi.',
         'no_selection' => 'Tidak ada batch yang dipilih untuk dihapus.',
-        'backup_required' => 'Backup diperlukan sebelum menghapus data.'
+        'backup_required' => 'Backup diperlukan sebelum menghapus data.',
+        'preview_success' => 'Preview backup berhasil. Data: ' . ($_GET['incoming'] ?? 0) . ' incoming, ' . ($_GET['outgoing'] ?? 0) . ' outgoing.',
+        'restore_success' => 'Restore berhasil! Dipulihkan: ' . ($_GET['incoming'] ?? 0) . ' incoming, ' . ($_GET['outgoing'] ?? 0) . ' outgoing' . (isset($_GET['skipped']) ? ', ' . $_GET['skipped'] . ' dilewati' : '') . '.',
+        'error_restore' => 'Gagal restore backup: ' . ($_GET['msg'] ?? 'Error tidak diketahui')
     ];
     
     if (array_key_exists($_GET['status'], $status_messages)) {
         $message = $status_messages[$_GET['status']];
-        $status_type = in_array($_GET['status'], ['backup_success', 'delete_success']) ? 'success' : 'danger';
+        $status_type = in_array($_GET['status'], ['backup_success', 'delete_success', 'restore_success', 'preview_success']) ? 'success' : 'danger';
+        if ($_GET['status'] === 'preview_success') {
+            $status_type = 'info';
+        }
     }
 }
 
@@ -94,6 +100,9 @@ try {
                             <i class="bi bi-check2-all me-1"></i>Pilih Semua
                         </button>
                     <?php endif; ?>
+                    <button type="button" class="btn btn-success btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#restoreBackupModal">
+                        <i class="bi bi-upload me-1"></i>Restore Backup
+                    </button>
                 </div>
             </div>
         </div>
@@ -375,4 +384,198 @@ function confirmDelete() {
         });
     });
 }
+</script>
+
+<!-- Modal Restore Backup -->
+<div class="modal fade" id="restoreBackupModal" tabindex="-1" aria-labelledby="restoreBackupModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="restoreBackupModalLabel">
+                    <i class="bi bi-upload me-2"></i>Restore Backup Batch
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="restoreBackupForm" action="index.php" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="page" value="backup_cleanup">
+                <input type="hidden" name="action" value="restore_backup">
+                
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Perhatian:</strong> Proses restore akan mengembalikan data batch yang telah di-backup sebelumnya ke dalam database.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="backup_file" class="form-label fw-semibold">
+                            <i class="bi bi-file-earmark-code me-1"></i>File Backup (JSON)
+                        </label>
+                        <input type="file" class="form-control" id="backup_file" name="backup_file" accept=".json" required>
+                        <div class="form-text">Pilih file backup JSON yang telah di-download sebelumnya</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="preview_only" name="preview_only" checked>
+                            <label class="form-check-label" for="preview_only">
+                                <strong>Preview Only</strong> - Hanya tampilkan data tanpa restore
+                            </label>
+                            <div class="form-text">Uncheck untuk melakukan restore sesungguhnya</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="overwrite_existing" name="overwrite_existing">
+                            <label class="form-check-label" for="overwrite_existing">
+                                <strong>Overwrite Data yang Ada</strong>
+                            </label>
+                            <div class="form-text">Jika ada data dengan ID yang sama, akan ditimpa dengan data backup</div>
+                        </div>
+                    </div>
+                    
+                    <div id="backup_preview" style="display: none;">
+                        <h6 class="fw-bold mt-4 mb-3">
+                            <i class="bi bi-eye me-1"></i>Preview Backup
+                        </h6>
+                        <div id="backup_info" class="bg-light p-3 rounded"></div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle me-1"></i>Batal
+                    </button>
+                    <button type="button" class="btn btn-info" id="previewBackupBtn">
+                        <i class="bi bi-eye me-1"></i>Preview Backup
+                    </button>
+                    <button type="submit" class="btn btn-success" id="restoreBackupBtn" disabled>
+                        <i class="bi bi-upload me-1"></i>Restore Data
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Handle backup file preview
+document.getElementById('previewBackupBtn').addEventListener('click', function() {
+    const fileInput = document.getElementById('backup_file');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        Swal.fire('Error', 'Pilih file backup terlebih dahulu.', 'error');
+        return;
+    }
+    
+    if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
+        Swal.fire('Error', 'File harus berformat JSON.', 'error');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const backupData = JSON.parse(e.target.result);
+            displayBackupPreview(backupData);
+            document.getElementById('restoreBackupBtn').disabled = false;
+        } catch (error) {
+            Swal.fire('Error', 'File JSON tidak valid: ' + error.message, 'error');
+        }
+    };
+    reader.readAsText(file);
+});
+
+function displayBackupPreview(backupData) {
+    const previewDiv = document.getElementById('backup_preview');
+    const infoDiv = document.getElementById('backup_info');
+    
+    let html = '<div class="row">';
+    
+    // Backup info
+    if (backupData.backup_info) {
+        html += `
+            <div class="col-md-6">
+                <h6 class="fw-bold text-primary">Informasi Backup</h6>
+                <ul class="list-unstyled small">
+                    <li><strong>Dibuat:</strong> ${backupData.backup_info.created_at || 'N/A'}</li>
+                    <li><strong>Tipe:</strong> ${backupData.backup_info.type || 'N/A'}</li>
+                    <li><strong>Total Batch:</strong> ${backupData.backup_info.total_batches || 0}</li>
+                </ul>
+            </div>
+        `;
+    }
+    
+    // Summary data
+    if (backupData.summary) {
+        html += `
+            <div class="col-md-6">
+                <h6 class="fw-bold text-success">Ringkasan Data</h6>
+                <ul class="list-unstyled small">
+                    <li><strong>Incoming Records:</strong> ${backupData.summary.total_incoming_records || 0}</li>
+                    <li><strong>Outgoing Records:</strong> ${backupData.summary.total_outgoing_records || 0}</li>
+                    <li><strong>Total Kg:</strong> ${backupData.summary.total_kg_in || 0} Kg</li>
+                </ul>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    
+    // Data details
+    if (backupData.incoming_transactions && backupData.incoming_transactions.length > 0) {
+        html += `
+            <div class="mt-3">
+                <h6 class="fw-bold text-info">Sample Data Incoming (${backupData.incoming_transactions.length} records)</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Produk</th>
+                                <th>Batch</th>
+                                <th>Qty (Kg)</th>
+                                <th>Tanggal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        
+        // Show first 5 records
+        backupData.incoming_transactions.slice(0, 5).forEach(item => {
+            html += `
+                <tr>
+                    <td>${item.id}</td>
+                    <td>${item.product_name || 'N/A'}</td>
+                    <td>${item.batch_number || 'N/A'}</td>
+                    <td>${item.quantity_kg || 0}</td>
+                    <td>${item.transaction_date || 'N/A'}</td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+    
+    infoDiv.innerHTML = html;
+    previewDiv.style.display = 'block';
+}
+
+// Handle checkbox changes
+document.getElementById('preview_only').addEventListener('change', function() {
+    const restoreBtn = document.getElementById('restoreBackupBtn');
+    if (this.checked) {
+        restoreBtn.innerHTML = '<i class="bi bi-eye me-1"></i>Preview Only';
+        restoreBtn.className = 'btn btn-info';
+    } else {
+        restoreBtn.innerHTML = '<i class="bi bi-upload me-1"></i>Restore Data';
+        restoreBtn.className = 'btn btn-danger';
+    }
+});
 </script>

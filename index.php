@@ -204,6 +204,120 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['page']) && $_POST['pa
             header("Location: index.php?page=backup_cleanup&status=error_delete");
             exit();
         }
+    } elseif ($action === 'restore_backup') {
+        // Restore backup from uploaded JSON file
+        if (!isset($_FILES['backup_file']) || $_FILES['backup_file']['error'] !== UPLOAD_ERR_OK) {
+            header("Location: index.php?page=backup_cleanup&status=error_restore&msg=" . urlencode("File upload gagal"));
+            exit();
+        }
+        
+        $preview_only = isset($_POST['preview_only']);
+        $overwrite_existing = isset($_POST['overwrite_existing']);
+        
+        try {
+            // Read and parse JSON file
+            $json_content = file_get_contents($_FILES['backup_file']['tmp_name']);
+            $backup_data = json_decode($json_content, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new Exception("File JSON tidak valid: " . json_last_error_msg());
+            }
+            
+            // Validate backup structure
+            if (!isset($backup_data['incoming_transactions']) || !isset($backup_data['outgoing_transactions'])) {
+                throw new Exception("Struktur backup tidak valid. File harus berisi incoming_transactions dan outgoing_transactions.");
+            }
+            
+            if ($preview_only) {
+                // Preview mode - just show summary
+                $incoming_count = count($backup_data['incoming_transactions']);
+                $outgoing_count = count($backup_data['outgoing_transactions']);
+                $summary = $backup_data['summary'] ?? [];
+                
+                header("Location: index.php?page=backup_cleanup&status=preview_success&incoming=" . $incoming_count . "&outgoing=" . $outgoing_count);
+                exit();
+            }
+            
+            // Actual restore
+            $pdo->beginTransaction();
+            
+            $restored_incoming = 0;
+            $restored_outgoing = 0;
+            $skipped = 0;
+            
+            // Restore incoming transactions
+            foreach ($backup_data['incoming_transactions'] as $incoming) {
+                if (!$overwrite_existing) {
+                    // Check if ID already exists
+                    $check_stmt = $pdo->prepare("SELECT id FROM incoming_transactions WHERE id = ?");
+                    $check_stmt->execute([$incoming['id']]);
+                    if ($check_stmt->fetch()) {
+                        $skipped++;
+                        continue;
+                    }
+                }
+                
+                $stmt = $pdo->prepare("INSERT INTO incoming_transactions 
+                    (id, product_id, po_number, supplier, produsen, license_plate, quantity_kg, quantity_sacks, 
+                     grossweight_kg, document_number, batch_number, lot_number, status, transaction_date, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE 
+                    product_id = VALUES(product_id), po_number = VALUES(po_number), supplier = VALUES(supplier),
+                    produsen = VALUES(produsen), license_plate = VALUES(license_plate), quantity_kg = VALUES(quantity_kg),
+                    quantity_sacks = VALUES(quantity_sacks), grossweight_kg = VALUES(grossweight_kg),
+                    document_number = VALUES(document_number), batch_number = VALUES(batch_number),
+                    lot_number = VALUES(lot_number), status = VALUES(status), transaction_date = VALUES(transaction_date)");
+                
+                $stmt->execute([
+                    $incoming['id'], $incoming['product_id'], $incoming['po_number'], $incoming['supplier'],
+                    $incoming['produsen'], $incoming['license_plate'], $incoming['quantity_kg'], $incoming['quantity_sacks'],
+                    $incoming['grossweight_kg'], $incoming['document_number'], $incoming['batch_number'],
+                    $incoming['lot_number'], $incoming['status'], $incoming['transaction_date'], $incoming['created_at']
+                ]);
+                $restored_incoming++;
+            }
+            
+            // Restore outgoing transactions
+            foreach ($backup_data['outgoing_transactions'] as $outgoing) {
+                if (!$overwrite_existing) {
+                    $check_stmt = $pdo->prepare("SELECT id FROM outgoing_transactions WHERE id = ?");
+                    $check_stmt->execute([$outgoing['id']]);
+                    if ($check_stmt->fetch()) {
+                        $skipped++;
+                        continue;
+                    }
+                }
+                
+                $stmt = $pdo->prepare("INSERT INTO outgoing_transactions 
+                    (id, product_id, incoming_transaction_id, quantity_kg, quantity_sacks, lot_number, 
+                     document_number, description, status, transaction_date, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE 
+                    product_id = VALUES(product_id), incoming_transaction_id = VALUES(incoming_transaction_id),
+                    quantity_kg = VALUES(quantity_kg), quantity_sacks = VALUES(quantity_sacks),
+                    lot_number = VALUES(lot_number), document_number = VALUES(document_number),
+                    description = VALUES(description), status = VALUES(status), transaction_date = VALUES(transaction_date)");
+                
+                $stmt->execute([
+                    $outgoing['id'], $outgoing['product_id'], $outgoing['incoming_transaction_id'],
+                    $outgoing['quantity_kg'], $outgoing['quantity_sacks'], $outgoing['lot_number'],
+                    $outgoing['document_number'], $outgoing['description'], $outgoing['status'],
+                    $outgoing['transaction_date'], $outgoing['created_at']
+                ]);
+                $restored_outgoing++;
+            }
+            
+            $pdo->commit();
+            header("Location: index.php?page=backup_cleanup&status=restore_success&incoming=" . $restored_incoming . "&outgoing=" . $restored_outgoing . "&skipped=" . $skipped);
+            exit();
+            
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            header("Location: index.php?page=backup_cleanup&status=error_restore&msg=" . urlencode($e->getMessage()));
+            exit();
+        }
     }
 }
 
