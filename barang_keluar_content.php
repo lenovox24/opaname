@@ -293,17 +293,47 @@ $query_params = $_GET;
                                     </div>
                                 </td>
                             </tr>
-                            <?php else: foreach ($transactions as $tx): ?>
+                            <?php else: 
+                                $prev_document = '';
+                                foreach ($transactions as $index => $tx): 
+                                    // Check if this is a new document group
+                                    $current_document = $tx['document_number'];
+                                    if ($current_document !== $prev_document): ?>
+                                        <!-- Document separator row -->
+                                        <tr class="table-info border-top border-3 border-primary">
+                                            <td colspan="10" class="fw-bold py-3 bg-gradient-primary text-white">
+                                                <div class="d-flex align-items-center">
+                                                    <i class="bi bi-file-earmark-text me-2"></i>
+                                                    <span>Dokumen: <?= htmlspecialchars($current_document) ?></span>
+                                                    <?php if (!empty($tx['description'])): ?>
+                                                        <span class="ms-3 opacity-75">
+                                                            <i class="bi bi-info-circle me-1"></i>
+                                                            <?= htmlspecialchars($tx['description']) ?>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                    <span class="ms-auto">
+                                                        <small class="opacity-75">
+                                                            <?= date('d/m/Y', strtotime($tx['transaction_date'])) ?>
+                                                        </small>
+                                                    </span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php 
+                                        $prev_document = $current_document;
+                                    endif; ?>
+                                
                                 <tr class="transaction-row">
-                                    <td class="text-nowrap">
+                                    <td class="text-nowrap ps-4">
                                         <span class="badge bg-light text-dark border">
                                             <?= date('d/m/Y', strtotime($tx['transaction_date'])) ?>
                                         </span>
                                     </td>
                                     <!-- Nama Barang -->
-                                    <td class="text-start">
+                                    <td class="text-start ps-4">
                                         <div class="product-info">
                                             <div class="fw-semibold text-truncate" style="max-width: 200px;" title="<?= htmlspecialchars($tx['product_name']) ?>">
+                                                <i class="bi bi-box me-2 text-muted"></i>
                                                 <?= htmlspecialchars($tx['product_name']) ?>
                                             </div>
                                         </div>
@@ -499,10 +529,44 @@ $query_params = $_GET;
                                     <span>Tidak ada pengeluaran sisa 501 untuk filter saat ini</span>
                                 </td>
                             </tr>
-                        <?php else: foreach ($transactions_501 as $row): ?>
-                            <tr>
-                                <td class="text-nowrap"><span class="badge bg-light text-dark border"><?= date('d/m/Y', strtotime($row['transaction_date'])) ?></span></td>
-                                <td class="text-start"><div class="fw-semibold text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($row['product_name']) ?>"><?= htmlspecialchars($row['product_name']) ?></div></td>
+                        <?php else: 
+                            $prev_document_501 = '';
+                            foreach ($transactions_501 as $index => $row): 
+                                // Check if this is a new document group for 501
+                                $current_document_501 = $row['document_number'];
+                                if ($current_document_501 !== $prev_document_501): ?>
+                                    <!-- Document separator row for 501 -->
+                                    <tr class="table-warning border-top border-3 border-warning">
+                                        <td colspan="9" class="fw-bold py-3 bg-gradient-warning text-dark">
+                                            <div class="d-flex align-items-center">
+                                                <i class="bi bi-calculator me-2"></i>
+                                                <span>Dokumen 501: <?= htmlspecialchars($current_document_501) ?></span>
+                                                <?php if (!empty($row['description'])): ?>
+                                                    <span class="ms-3 opacity-75">
+                                                        <i class="bi bi-info-circle me-1"></i>
+                                                        <?= htmlspecialchars($row['description']) ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                                <span class="ms-auto">
+                                                    <small class="opacity-75">
+                                                        <?= date('d/m/Y', strtotime($row['transaction_date'])) ?>
+                                                    </small>
+                                                </span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php 
+                                    $prev_document_501 = $current_document_501;
+                                endif; ?>
+                            
+                            <tr class="transaction-501-row">
+                                <td class="text-nowrap ps-4"><span class="badge bg-light text-dark border"><?= date('d/m/Y', strtotime($row['transaction_date'])) ?></span></td>
+                                <td class="text-start ps-4">
+                                    <div class="fw-semibold text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($row['product_name']) ?>">
+                                        <i class="bi bi-calculator me-2 text-warning"></i>
+                                        <?= htmlspecialchars($row['product_name']) ?>
+                                    </div>
+                                </td>
                                 <td class="text-nowrap"><code class="bg-light px-2 py-1 rounded"><?= htmlspecialchars($row['sku']) ?></code></td>
                                 <td class="text-nowrap"><span class="badge bg-success fs-6"><?= formatAngkaUI($row['lot_total_501']) ?></span></td>
                                 <td class="text-truncate" style="max-width: 100px;">
@@ -995,3 +1059,83 @@ foreach ($_GET as $key => $val) {
         }
     });
 </script>
+
+<style>
+/* Custom styling untuk pemisah dokumen */
+.bg-gradient-primary {
+    background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%) !important;
+}
+
+.transaction-row {
+    transition: all 0.2s ease;
+}
+
+.transaction-row:hover {
+    background-color: rgba(13, 110, 253, 0.05) !important;
+    transform: translateX(2px);
+}
+
+/* Border kiri untuk item dalam grup dokumen */
+.transaction-row td:first-child {
+    border-left: 3px solid #e9ecef;
+}
+
+.transaction-row:hover td:first-child {
+    border-left-color: #0d6efd;
+}
+
+/* Document separator styling */
+.table-info.border-top.border-3.border-primary {
+    background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
+    box-shadow: 0 2px 4px rgba(13, 110, 253, 0.2);
+}
+
+/* Grouping visual effect */
+.table > tbody > tr.transaction-row + tr.transaction-row td {
+    border-top: 1px solid #f8f9fa;
+}
+
+/* Zebra striping within document groups */
+.transaction-row:nth-child(even) {
+    background-color: rgba(248, 249, 250, 0.5);
+}
+
+/* Document header shadow */
+.table-info td {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Styling untuk tabel 501 */
+.bg-gradient-warning {
+    background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%) !important;
+}
+
+.transaction-501-row {
+    transition: all 0.2s ease;
+}
+
+.transaction-501-row:hover {
+    background-color: rgba(255, 193, 7, 0.1) !important;
+    transform: translateX(2px);
+}
+
+/* Border kiri untuk item 501 dalam grup dokumen */
+.transaction-501-row td:first-child {
+    border-left: 3px solid #ffc107;
+}
+
+.transaction-501-row:hover td:first-child {
+    border-left-color: #ff8f00;
+}
+
+/* Document separator styling untuk 501 */
+.table-warning.border-top.border-3.border-warning {
+    background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%);
+    box-shadow: 0 2px 4px rgba(255, 193, 7, 0.3);
+}
+
+/* Zebra striping within 501 document groups */
+.transaction-501-row:nth-child(even) {
+    background-color: rgba(255, 243, 205, 0.3);
+}
+</style>
