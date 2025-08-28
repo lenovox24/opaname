@@ -63,11 +63,6 @@ $active_page = $active_page ?? '';
                     <i class="bi bi-droplet-half me-2"></i> Opname Minyak
                 </a>
             </li>
-            <li class="nav-item mb-1">
-                <a href="index.php?page=backup_cleanup" class="nav-link <?php echo ($active_page == 'backup_cleanup') ? 'active' : 'text-white'; ?>">
-                    <i class="bi bi-archive me-2"></i> Backup & Cleanup
-                </a>
-            </li>
         </ul>
         <hr class="text-white">
         <div class="d-grid">
