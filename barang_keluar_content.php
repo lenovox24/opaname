@@ -100,10 +100,10 @@ $stmt_count->execute($params);
 $total_rows = (int)$stmt_count->fetchColumn();
 $total_pages = (int)ceil($total_rows / $limit);
 
-// Susun ORDER BY untuk tampilan agregat
+// Susun ORDER BY untuk tampilan agregat - prioritas grouping dokumen
 $order_sql = $sort_by === 'product_name'
-    ? "p.product_name $sort_order, t.transaction_date DESC"
-    : "t.transaction_date $sort_order, p.product_name ASC";
+    ? "t.document_number ASC, t.description ASC, p.product_name $sort_order, t.transaction_date DESC"
+    : "t.document_number ASC, t.description ASC, t.transaction_date $sort_order, p.product_name ASC";
 
 $sql_transactions = "SELECT 
     t.transaction_date,
@@ -133,17 +133,27 @@ $page_num_501 = isset($_GET['page_num_501']) && is_numeric($_GET['page_num_501']
 $offset_501 = ($page_num_501 - 1) * $limit_501;
 
 $sql_base_501 = $sql_base . " AND t.lot_number > 0";
-$sql_count_501 = "SELECT COUNT(t.id) " . $sql_base_501;
+$sql_count_501 = "SELECT COUNT(*) FROM (SELECT 1 " . $sql_base_501 . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id) g";
 $stmt_count_501 = $pdo->prepare($sql_count_501);
 $stmt_count_501->execute($params);
 $total_rows_501 = (int)$stmt_count_501->fetchColumn();
 $total_pages_501 = (int)ceil($total_rows_501 / $limit_501);
 
 $order_sql_501 = $sort_by === 'product_name'
-    ? "p.product_name $sort_order, t.transaction_date DESC"
-    : "t.transaction_date $sort_order, p.product_name ASC";
+    ? "t.document_number ASC, t.description ASC, p.product_name $sort_order, t.transaction_date DESC"
+    : "t.document_number ASC, t.description ASC, t.transaction_date $sort_order, p.product_name ASC";
 
-$sql_501 = "SELECT t.*, p.product_name, p.sku " . $sql_base_501 . " ORDER BY $order_sql_501 LIMIT :limit501 OFFSET :offset501";
+$sql_501 = "SELECT 
+    t.transaction_date,
+    t.document_number,
+    t.description,
+    t.product_id,
+    p.product_name, p.sku,
+    MIN(t.id) AS id,
+    SUM(CASE WHEN t.lot_number IS NULL THEN 0 ELSE t.lot_number END) AS lot_total_501,
+    COUNT(DISTINCT t.incoming_transaction_id) AS batch_count_501,
+    CASE WHEN MIN(t.status) = MAX(t.status) THEN MIN(t.status) ELSE 'Mixed' END AS status_group_501
+" . $sql_base_501 . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id, p.product_name, p.sku ORDER BY $order_sql_501 LIMIT :limit501 OFFSET :offset501";
 $stmt_501 = $pdo->prepare($sql_501);
 foreach ($params as $key => $val) { $stmt_501->bindValue($key, $val); }
 $stmt_501->bindValue(':limit501', $limit_501, PDO::PARAM_INT);
@@ -264,7 +274,6 @@ $query_params = $_GET;
                             <th class="text-nowrap fw-bold">Qty (Sak)</th>
                             <th class="text-nowrap fw-bold">No. Dokumen</th>
                             <th class="text-start text-nowrap fw-bold">Keterangan</th>
-                            <th class="text-nowrap fw-bold">501 (Lot)</th>
                             <th class="text-nowrap fw-bold">Batch</th>
                             <th class="text-nowrap fw-bold">Status</th>
                             <th class="text-center text-nowrap fw-bold">Aksi</th>
@@ -273,7 +282,7 @@ $query_params = $_GET;
                     <tbody>
                         <?php if (empty($transactions)): ?>
                             <tr>
-                                <td colspan="11" class="text-center text-muted p-5">
+                                <td colspan="10" class="text-center text-muted p-5">
                                     <div class="empty-state">
                                         <i class="bi bi-inbox display-1 text-muted opacity-50"></i>
                                         <h5 class="mt-3 text-muted">Belum Ada Data Transaksi</h5>
@@ -284,17 +293,47 @@ $query_params = $_GET;
                                     </div>
                                 </td>
                             </tr>
-                            <?php else: foreach ($transactions as $tx): ?>
+                            <?php else: 
+                                $prev_document_key = '';
+                                foreach ($transactions as $index => $tx): 
+                                    // Check if this is a new document group (document_number + description)
+                                    $current_document_key = $tx['document_number'] . '|' . ($tx['description'] ?? '');
+                                    if ($current_document_key !== $prev_document_key): ?>
+                                        <!-- Document separator row -->
+                                        <tr class="table-info border-top border-3 border-primary">
+                                            <td colspan="10" class="fw-bold py-3 bg-gradient-primary text-white">
+                                                <div class="d-flex align-items-center">
+                                                    <i class="bi bi-file-earmark-text me-2"></i>
+                                                    <span>Dokumen: <?= htmlspecialchars($tx['document_number']) ?></span>
+                                                    <?php if (!empty($tx['description'])): ?>
+                                                        <span class="ms-3 opacity-75">
+                                                            <i class="bi bi-info-circle me-1"></i>
+                                                            <?= htmlspecialchars($tx['description']) ?>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                    <span class="ms-auto">
+                                                        <small class="opacity-75">
+                                                            <?= date('d/m/Y', strtotime($tx['transaction_date'])) ?>
+                                                        </small>
+                                                    </span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php 
+                                        $prev_document_key = $current_document_key;
+                                    endif; ?>
+                                
                                 <tr class="transaction-row">
-                                    <td class="text-nowrap">
+                                    <td class="text-nowrap ps-4">
                                         <span class="badge bg-light text-dark border">
                                             <?= date('d/m/Y', strtotime($tx['transaction_date'])) ?>
                                         </span>
                                     </td>
                                     <!-- Nama Barang -->
-                                    <td class="text-start">
+                                    <td class="text-start ps-4">
                                         <div class="product-info">
                                             <div class="fw-semibold text-truncate" style="max-width: 200px;" title="<?= htmlspecialchars($tx['product_name']) ?>">
+                                                <i class="bi bi-box me-2 text-muted"></i>
                                                 <?= htmlspecialchars($tx['product_name']) ?>
                                             </div>
                                         </div>
@@ -321,10 +360,7 @@ $query_params = $_GET;
                                     <td class="text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($tx['description'] ?? '') ?>">
                                         <span class="text-muted"><?= htmlspecialchars($tx['description'] ?? '') ?></span>
                                     </td>
-                                    <!-- 501 (Lot) total -->
-                                    <td class="text-nowrap">
-                                        <span class="badge bg-warning text-dark fs-6"><?= formatAngkaUI($tx['sum_lot_number']) ?></span>
-                                    </td>
+                                    
                                     <!-- Batch -->
                                     <td class="text-truncate" style="max-width: 100px;">
                                         <?php if ((int)$tx['batch_count'] <= 1): ?>
@@ -465,7 +501,7 @@ $query_params = $_GET;
     <div class="card border-warning shadow-sm">
         <div class="card-header bg-warning text-dark">
             <div class="d-flex justify-content-between align-items-center">
-                <h6 class="mb-0 fw-bold"><i class="bi bi-calculator me-2"></i>Daftar Pengeluaran Sisa 501</h6>
+                <h6 class="mb-0 fw-bold"><i class="bi bi-list-ol me-2"></i>Daftar Pengeluaran Sisa 501</h6>
                 <small class="text-dark-50">Item dengan Lot (501) > 0</small>
             </div>
         </div>
@@ -493,20 +529,62 @@ $query_params = $_GET;
                                     <span>Tidak ada pengeluaran sisa 501 untuk filter saat ini</span>
                                 </td>
                             </tr>
-                        <?php else: foreach ($transactions_501 as $row): ?>
-                            <tr>
-                                <td class="text-nowrap"><span class="badge bg-light text-dark border"><?= date('d/m/Y', strtotime($row['transaction_date'])) ?></span></td>
-                                <td class="text-start"><div class="fw-semibold text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($row['product_name']) ?>"><?= htmlspecialchars($row['product_name']) ?></div></td>
+                        <?php else: 
+                            $prev_document_key_501 = '';
+                            foreach ($transactions_501 as $index => $row): 
+                                // Check if this is a new document group for 501 (document_number + description)
+                                $current_document_key_501 = $row['document_number'] . '|' . ($row['description'] ?? '');
+                                if ($current_document_key_501 !== $prev_document_key_501): ?>
+                                    <!-- Document separator row for 501 -->
+                                    <tr class="table-warning border-top border-3 border-warning">
+                                        <td colspan="9" class="fw-bold py-3 bg-gradient-warning text-dark">
+                                            <div class="d-flex align-items-center">
+                                                <i class="bi bi-file-earmark-check me-2"></i>
+                                                <span>Dokumen 501: <?= htmlspecialchars($row['document_number']) ?></span>
+                                                <?php if (!empty($row['description'])): ?>
+                                                    <span class="ms-3 opacity-75">
+                                                        <i class="bi bi-info-circle me-1"></i>
+                                                        <?= htmlspecialchars($row['description']) ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                                <span class="ms-auto">
+                                                    <small class="opacity-75">
+                                                        <?= date('d/m/Y', strtotime($row['transaction_date'])) ?>
+                                                    </small>
+                                                </span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php 
+                                    $prev_document_key_501 = $current_document_key_501;
+                                endif; ?>
+                            
+                            <tr class="transaction-501-row">
+                                <td class="text-nowrap ps-4"><span class="badge bg-light text-dark border"><?= date('d/m/Y', strtotime($row['transaction_date'])) ?></span></td>
+                                <td class="text-start ps-4">
+                                    <div class="fw-semibold text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($row['product_name']) ?>">
+                                        <i class="bi bi-box me-2 text-warning"></i>
+                                        <?= htmlspecialchars($row['product_name']) ?>
+                                    </div>
+                                </td>
                                 <td class="text-nowrap"><code class="bg-light px-2 py-1 rounded"><?= htmlspecialchars($row['sku']) ?></code></td>
-                                <td class="text-nowrap"><span class="badge bg-success fs-6"><?= formatAngkaUI($row['lot_number']) ?></span></td>
-                                <td class="text-nowrap"><span class="badge bg-info text-white"><?= htmlspecialchars($row['batch_number'] ?? '') ?></span></td>
+                                <td class="text-nowrap"><span class="badge bg-success fs-6"><?= formatAngkaUI($row['lot_total_501']) ?></span></td>
+                                <td class="text-truncate" style="max-width: 100px;">
+                                    <?php if ((int)($row['batch_count_501'] ?? 0) <= 1): ?>
+                                        <span class="badge bg-info text-white">Single</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-info text-white">Multiple (<?= (int)$row['batch_count_501'] ?>)</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="text-truncate" style="max-width: 140px;"><span class="text-primary fw-semibold" title="<?= htmlspecialchars($row['document_number']) ?>"><?= htmlspecialchars($row['document_number']) ?></span></td>
                                 <td class="text-truncate" style="max-width: 240px;" title="<?= htmlspecialchars($row['description'] ?? '') ?>"><span class="text-muted"><?= htmlspecialchars($row['description'] ?? '') ?></span></td>
                                 <td>
-                                    <?php if (($row['status'] ?? '') === 'Closed'): ?>
+                                    <?php if (($row['status_group_501'] ?? '') === 'Closed'): ?>
                                         <span class="badge bg-success rounded-pill px-3"><i class="bi bi-check-circle me-1"></i>Closed</span>
-                                    <?php else: ?>
+                                    <?php elseif (($row['status_group_501'] ?? '') === 'Pending'): ?>
                                         <span class="badge bg-warning text-dark rounded-pill px-3"><i class="bi bi-clock me-1"></i>Pending</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-secondary rounded-pill px-3" title="Terdapat kombinasi status dalam grup">Mixed</span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-center">
@@ -612,7 +690,7 @@ foreach ($_GET as $key => $val) {
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="tab-501" data-bs-toggle="tab" data-bs-target="#pane-501" type="button" role="tab" aria-controls="pane-501" aria-selected="false">
-                                <i class="bi bi-calculator me-1"></i>Pengeluaran 501
+                                <i class="bi bi-list-ul me-1"></i>Pengeluaran 501
                             </button>
                         </li>
                     </ul>
@@ -756,6 +834,12 @@ foreach ($_GET as $key => $val) {
                                     </tbody>
                                 </table>
                             </div>
+                            <!-- Items Summary -->
+                            <div class="card-footer bg-light border-top">
+                                <div id="outgoing_items_summary" class="text-muted">
+                                    <small>Belum ada item yang ditambahkan</small>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -764,7 +848,7 @@ foreach ($_GET as $key => $val) {
                             <div class="card border-warning mb-4">
                                 <div class="card-header bg-warning text-dark">
                                     <h6 class="card-title fw-bold mb-0">
-                                        <i class="bi bi-calculator me-2"></i>Pengeluaran Sisa 501
+                                        <i class="bi bi-list-check me-2"></i>Pengeluaran Sisa 501
                                     </h6>
                                 </div>
                                 <div class="card-body">
@@ -795,7 +879,7 @@ foreach ($_GET as $key => $val) {
                                         </div>
                                         <div class="col-md-6">
                                             <label class="form-label fw-semibold">
-                                                <i class="bi bi-calculator me-1 text-success"></i>Sisa 501 Tersedia
+                                                <i class="bi bi-clipboard-data me-1 text-success"></i>Sisa 501 Tersedia
                                             </label>
                                             <div class="input-group">
                                                 <input type="text" class="form-control bg-light border-0 shadow-sm fw-bold text-success" id="keluar501_sisa_display_embedded" readonly placeholder="0.00">
@@ -975,3 +1059,83 @@ foreach ($_GET as $key => $val) {
         }
     });
 </script>
+
+<style>
+/* Custom styling untuk pemisah dokumen */
+.bg-gradient-primary {
+    background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%) !important;
+}
+
+.transaction-row {
+    transition: all 0.2s ease;
+}
+
+.transaction-row:hover {
+    background-color: rgba(13, 110, 253, 0.05) !important;
+    transform: translateX(2px);
+}
+
+/* Border kiri untuk item dalam grup dokumen */
+.transaction-row td:first-child {
+    border-left: 3px solid #e9ecef;
+}
+
+.transaction-row:hover td:first-child {
+    border-left-color: #0d6efd;
+}
+
+/* Document separator styling */
+.table-info.border-top.border-3.border-primary {
+    background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
+    box-shadow: 0 2px 4px rgba(13, 110, 253, 0.2);
+}
+
+/* Grouping visual effect */
+.table > tbody > tr.transaction-row + tr.transaction-row td {
+    border-top: 1px solid #f8f9fa;
+}
+
+/* Zebra striping within document groups */
+.transaction-row:nth-child(even) {
+    background-color: rgba(248, 249, 250, 0.5);
+}
+
+/* Document header shadow */
+.table-info td {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Styling untuk tabel 501 */
+.bg-gradient-warning {
+    background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%) !important;
+}
+
+.transaction-501-row {
+    transition: all 0.2s ease;
+}
+
+.transaction-501-row:hover {
+    background-color: rgba(255, 193, 7, 0.1) !important;
+    transform: translateX(2px);
+}
+
+/* Border kiri untuk item 501 dalam grup dokumen */
+.transaction-501-row td:first-child {
+    border-left: 3px solid #ffc107;
+}
+
+.transaction-501-row:hover td:first-child {
+    border-left-color: #ff8f00;
+}
+
+/* Document separator styling untuk 501 */
+.table-warning.border-top.border-3.border-warning {
+    background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%);
+    box-shadow: 0 2px 4px rgba(255, 193, 7, 0.3);
+}
+
+/* Zebra striping within 501 document groups */
+.transaction-501-row:nth-child(even) {
+    background-color: rgba(255, 243, 205, 0.3);
+}
+</style>

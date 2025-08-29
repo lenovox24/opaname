@@ -74,7 +74,7 @@ if (!empty($batch_query)) {
     $params[':batch_number'] = '%' . $batch_query . '%';
 }
 
-$sql .= " ORDER BY t.document_number, t.po_number, t.created_at";
+$sql .= " ORDER BY t.transaction_date ASC, t.created_at ASC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
