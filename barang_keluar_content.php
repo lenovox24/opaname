@@ -100,10 +100,10 @@ $stmt_count->execute($params);
 $total_rows = (int)$stmt_count->fetchColumn();
 $total_pages = (int)ceil($total_rows / $limit);
 
-// Susun ORDER BY untuk tampilan agregat
+// Susun ORDER BY untuk tampilan agregat - prioritas grouping dokumen
 $order_sql = $sort_by === 'product_name'
-    ? "p.product_name $sort_order, t.transaction_date DESC"
-    : "t.transaction_date $sort_order, p.product_name ASC";
+    ? "t.document_number ASC, t.description ASC, p.product_name $sort_order, t.transaction_date DESC"
+    : "t.document_number ASC, t.description ASC, t.transaction_date $sort_order, p.product_name ASC";
 
 $sql_transactions = "SELECT 
     t.transaction_date,
@@ -140,8 +140,8 @@ $total_rows_501 = (int)$stmt_count_501->fetchColumn();
 $total_pages_501 = (int)ceil($total_rows_501 / $limit_501);
 
 $order_sql_501 = $sort_by === 'product_name'
-    ? "p.product_name $sort_order, t.transaction_date DESC"
-    : "t.transaction_date $sort_order, p.product_name ASC";
+    ? "t.document_number ASC, t.description ASC, p.product_name $sort_order, t.transaction_date DESC"
+    : "t.document_number ASC, t.description ASC, t.transaction_date $sort_order, p.product_name ASC";
 
 $sql_501 = "SELECT 
     t.transaction_date,
@@ -294,17 +294,17 @@ $query_params = $_GET;
                                 </td>
                             </tr>
                             <?php else: 
-                                $prev_document = '';
+                                $prev_document_key = '';
                                 foreach ($transactions as $index => $tx): 
-                                    // Check if this is a new document group
-                                    $current_document = $tx['document_number'];
-                                    if ($current_document !== $prev_document): ?>
+                                    // Check if this is a new document group (document_number + description)
+                                    $current_document_key = $tx['document_number'] . '|' . ($tx['description'] ?? '');
+                                    if ($current_document_key !== $prev_document_key): ?>
                                         <!-- Document separator row -->
                                         <tr class="table-info border-top border-3 border-primary">
                                             <td colspan="10" class="fw-bold py-3 bg-gradient-primary text-white">
                                                 <div class="d-flex align-items-center">
                                                     <i class="bi bi-file-earmark-text me-2"></i>
-                                                    <span>Dokumen: <?= htmlspecialchars($current_document) ?></span>
+                                                    <span>Dokumen: <?= htmlspecialchars($tx['document_number']) ?></span>
                                                     <?php if (!empty($tx['description'])): ?>
                                                         <span class="ms-3 opacity-75">
                                                             <i class="bi bi-info-circle me-1"></i>
@@ -320,7 +320,7 @@ $query_params = $_GET;
                                             </td>
                                         </tr>
                                     <?php 
-                                        $prev_document = $current_document;
+                                        $prev_document_key = $current_document_key;
                                     endif; ?>
                                 
                                 <tr class="transaction-row">
@@ -530,17 +530,17 @@ $query_params = $_GET;
                                 </td>
                             </tr>
                         <?php else: 
-                            $prev_document_501 = '';
+                            $prev_document_key_501 = '';
                             foreach ($transactions_501 as $index => $row): 
-                                // Check if this is a new document group for 501
-                                $current_document_501 = $row['document_number'];
-                                if ($current_document_501 !== $prev_document_501): ?>
+                                // Check if this is a new document group for 501 (document_number + description)
+                                $current_document_key_501 = $row['document_number'] . '|' . ($row['description'] ?? '');
+                                if ($current_document_key_501 !== $prev_document_key_501): ?>
                                     <!-- Document separator row for 501 -->
                                     <tr class="table-warning border-top border-3 border-warning">
                                         <td colspan="9" class="fw-bold py-3 bg-gradient-warning text-dark">
                                             <div class="d-flex align-items-center">
                                                 <i class="bi bi-file-earmark-check me-2"></i>
-                                                <span>Dokumen 501: <?= htmlspecialchars($current_document_501) ?></span>
+                                                <span>Dokumen 501: <?= htmlspecialchars($row['document_number']) ?></span>
                                                 <?php if (!empty($row['description'])): ?>
                                                     <span class="ms-3 opacity-75">
                                                         <i class="bi bi-info-circle me-1"></i>
@@ -556,7 +556,7 @@ $query_params = $_GET;
                                         </td>
                                     </tr>
                                 <?php 
-                                    $prev_document_501 = $current_document_501;
+                                    $prev_document_key_501 = $current_document_key_501;
                                 endif; ?>
                             
                             <tr class="transaction-501-row">
