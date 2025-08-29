@@ -2112,16 +2112,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const itemsJsonHidden = document.getElementById('items_json');
     if (outgoingForm && itemsJsonHidden) {
       outgoingForm.addEventListener('submit', (e) => {
-        console.log('Submit event triggered, embedded501Items length:', embedded501Items.length);
         try {
           const list = JSON.parse(itemsJsonHidden.value || '[]');
-          console.log('Current items_json:', list.length, 'items');
           
           if (embedded501Items.length) {
-            console.log('Merging 501 items:', embedded501Items);
             const merged = list.concat(embedded501Items);
             itemsJsonHidden.value = JSON.stringify(merged);
-            console.log('Merged items_json:', merged.length, 'items');
             
             // Clear embedded501Items after merging to avoid duplication
             embedded501Items.length = 0;

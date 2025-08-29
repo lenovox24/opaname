@@ -96,8 +96,8 @@ $sql = "
         products p ON t.product_id = p.id
     WHERE 1=1
     AND (
-        -- Kecualikan transaksi 501 (pindahan internal)
-        (t.description IS NULL OR t.description NOT LIKE '%501%')
+        -- Kecualikan transaksi 501 (pindahan internal) berdasarkan lot_number
+        t.lot_number = 0
     )
 ";
 

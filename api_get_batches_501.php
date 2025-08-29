@@ -27,8 +27,7 @@ try {
                 incoming_transaction_id,
                 SUM(lot_number) as total_keluar_501
             FROM outgoing_transactions 
-            WHERE lot_number > 0 
-            AND description LIKE '%501%'
+            WHERE lot_number > 0
             GROUP BY incoming_transaction_id
         ) keluar_501 ON t_in.id = keluar_501.incoming_transaction_id
         WHERE
