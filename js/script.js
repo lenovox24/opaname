@@ -1990,35 +1990,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // Hook submit to include 501 as separate item if filled
-    const outgoingForm = document.getElementById('outgoingTransactionForm');
-    const itemsJsonHidden = document.getElementById('items_json');
-    if (outgoingForm && itemsJsonHidden) {
-      outgoingForm.addEventListener('submit', (e) => {
-        try {
-          const list = JSON.parse(itemsJsonHidden.value || '[]');
-          const pid = productId501Hidden?.value;
-          const sel = batchSelect501?.options[batchSelect501.selectedIndex];
-          const qty501 = Number.parseFloat(qty501Input?.value || '0');
-          if (pid && sel && isFinite(qty501) && qty501 > 0) {
-            const productOpt = Array.from(datalistOutgoing?.options || []).find(o => o.dataset.id === pid);
-            const stdQty = Number.parseFloat(productOpt?.dataset?.stdqty || '0');
-            const qtySak = stdQty > 0 ? qty501 / stdQty : 0;
-            list.push({
-              product_id: pid,
-              product_name: productOpt?.value || '',
-              sku: productOpt?.dataset?.sku || '',
-              incoming_id: sel.value,
-              batch_number: sel.dataset.batch_number || '',
-              qty_kg: 0,
-              qty_sak: 0,
-              lot_number: qty501
-            });
-            itemsJsonHidden.value = JSON.stringify(list);
-          }
-        } catch (_) { /* ignore */ }
-      });
-    }
+    // Note: Hook submit logic for 501 moved to merge embedded items section below
 
     // 501 embedded list elements
     const addItem501Btn = document.getElementById('addItem501OutgoingBtn');
@@ -2136,29 +2108,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Merge embedded 501 items into items_json on submit
+    const outgoingForm = document.getElementById('outgoingTransactionForm');
+    const itemsJsonHidden = document.getElementById('items_json');
     if (outgoingForm && itemsJsonHidden) {
       outgoingForm.addEventListener('submit', (e) => {
+        console.log('Submit event triggered, embedded501Items length:', embedded501Items.length);
         try {
           const list = JSON.parse(itemsJsonHidden.value || '[]');
+          console.log('Current items_json:', list.length, 'items');
+          
           if (embedded501Items.length) {
+            console.log('Merging 501 items:', embedded501Items);
             const merged = list.concat(embedded501Items);
             itemsJsonHidden.value = JSON.stringify(merged);
-            // After merging, decrement sisa of corresponding option(s)
-            embedded501Items.forEach((it) => {
-              const opt = Array.from(batchSelect501?.options || []).find(o => o && o.value === it.incoming_id);
-              if (!opt) return;
-              const base = Number.parseFloat((opt.dataset.sisaBase || opt.dataset.sisa || '0').toString().replace(',', '.')) || 0;
-              const dec = Number.parseFloat((it.lot_number || 0).toString().replace(',', '.')) || 0;
-              let remain = Math.max(0, base - dec);
-              remain = Math.round(remain * 1000) / 1000;
-              opt.dataset.sisaBase = String(remain);
-              opt.dataset.sisaBaseRaw = String(remain);
-              opt.dataset.sisa = String(remain);
-              opt.dataset.sisa_raw = String(remain);
-              update501OptionLabel(opt);
-            });
+            console.log('Merged items_json:', merged.length, 'items');
+            
+            // Clear embedded501Items after merging to avoid duplication
+            embedded501Items.length = 0;
+            renderEmbedded501List();
           }
-        } catch (_) { /* ignore */ }
+        } catch (err) { 
+          console.error('Error merging 501 items:', err);
+        }
       });
     }
   }
