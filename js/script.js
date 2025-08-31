@@ -782,6 +782,22 @@ function resetModalState(modalId) {
         `;
       }
       
+      // Clear embedded 501 items list and UI
+      if (window.embedded501Items) {
+        window.embedded501Items.length = 0;
+      }
+      const items501List = document.getElementById('outgoing_items_501_list');
+      if (items501List) {
+        items501List.innerHTML = `
+          <tr>
+            <td colspan="5" class="text-center text-muted p-4">
+              <i class="bi bi-inbox display-6 d-block mb-2 opacity-50"></i>
+              <span>Belum ada item 501 yang ditambahkan</span>
+            </td>
+          </tr>
+        `;
+      }
+
       // Reset hidden fields
       const docInput = document.getElementById("original_document_number");
       const itemsJsonInput = document.getElementById("items_json");
@@ -1251,6 +1267,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const outgoingModalEl = document.getElementById("outgoingTransactionModal");
   if (outgoingModalEl) {
     let outgoingItems = [];
+    // Make embedded 501 items available before submit handler so we can allow 501-only saves
+    if (!window.embedded501Items) {
+      window.embedded501Items = [];
+    }
+    let embedded501Items = window.embedded501Items;
     let batchCache = {};
 
     const modalTitle = document.getElementById("outgoingModalLabel");
@@ -1853,8 +1874,9 @@ document.addEventListener("DOMContentLoaded", () => {
             renderItemsTable();
             updateItemsJSON();
             updateItemsSummary();
-            // Fill embedded 501 tab list
-            embedded501Items = only501;
+            // Fill embedded 501 tab list without breaking the shared reference
+            embedded501Items.length = 0;
+            Array.prototype.push.apply(embedded501Items, only501);
             renderEmbedded501List();
           })
           .catch((err) => {
@@ -1871,15 +1893,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     mainForm.addEventListener("submit", (e) => {
-      if (outgoingItems.length === 0) {
+      const totalItemsCount = (outgoingItems?.length || 0) + (embedded501Items?.length || 0);
+      if (totalItemsCount === 0) {
         e.preventDefault();
         Swal.fire(
           "Daftar Kosong!",
-          "Harap tambahkan minimal satu item.",
+          "Harap tambahkan minimal satu item (termasuk 501).",
           "warning"
         );
         return;
       }
+      // Keep original behavior: set JSON from main items; 501 items will be merged by the later submit handler
       hiddenJsonInput.value = JSON.stringify(outgoingItems);
     });
 
@@ -1995,7 +2019,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // 501 embedded list elements
     const addItem501Btn = document.getElementById('addItem501OutgoingBtn');
     const items501Tbody = document.getElementById('outgoing_items_501_list');
-    let embedded501Items = [];
 
     function renderEmbedded501List() {
       if (!items501Tbody) return;
