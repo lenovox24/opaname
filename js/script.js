@@ -2003,13 +2003,15 @@ document.addEventListener("DOMContentLoaded", () => {
         qty501Input.max = isFinite(sisa) ? String(sisa) : '';
       });
       qty501Input.addEventListener('input', function() {
-        // Hanya clamp nilai input agar tidak melebihi sisa, tapi jangan mengurangi sisa/label sampai klik Tambah
+        // Tandai invalid jika melebihi sisa, tapi jangan clamp. Penanganan final saat klik Tambah.
         const sel = batchSelect501?.options[batchSelect501.selectedIndex];
         if (!sel) return;
         const base = Number.parseFloat((sel.dataset.sisaBase || sel.dataset.sisa || '0').toString().replace(',', '.')) || 0;
-        let val = Number.parseFloat((this.value || '0').toString().replace(',', '.')) || 0;
+        const val = Number.parseFloat((this.value || '0').toString().replace(',', '.')) || 0;
         if (base > 0 && val > base) {
-          this.value = String(base).replace('.', ',');
+          this.classList.add('is-invalid');
+        } else {
+          this.classList.remove('is-invalid');
         }
       });
     }
@@ -2058,40 +2060,63 @@ document.addEventListener("DOMContentLoaded", () => {
       addItem501Btn.addEventListener('click', () => {
         const pid = productId501Hidden?.value;
         const sel = batchSelect501?.options[batchSelect501.selectedIndex];
-        const qty501 = Number.parseFloat((qty501Input?.value || '0').toString().replace(',', '.'));
+        const qtyReq = Number.parseFloat((qty501Input?.value || '0').toString().replace(',', '.'));
         if (!pid) { Swal?.fire?.('Oops...', 'Pilih Nama Barang 501 terlebih dahulu.', 'warning'); return; }
         if (!sel || !sel.value) { Swal?.fire?.('Oops...', 'Pilih Batch 501 terlebih dahulu.', 'warning'); return; }
-        if (!(qty501 > 0)) { Swal?.fire?.('Oops...', 'Masukkan jumlah 501 (Kg) yang valid.', 'warning'); return; }
+        if (!(qtyReq > 0)) { Swal?.fire?.('Oops...', 'Masukkan jumlah 501 (Kg) yang valid.', 'warning'); return; }
 
-        const sisaBefore = Number.parseFloat(sel.dataset.sisa || '0');
-        if (qty501 > sisaBefore) { Swal?.fire?.('Oops...', `Maksimum ${sisaBefore.toFixed(2)} Kg.`, 'warning'); return; }
+        const sisaBefore = Number.parseFloat((sel.dataset.sisaBase || sel.dataset.sisa || '0').toString().replace(',', '.')) || 0;
 
-        const productOpt = Array.from(datalistOutgoing?.options || []).find(o => o.dataset.id === pid);
-        const item = {
-          product_id: pid,
-          product_name: productOpt?.value || '',
-          sku: productOpt?.dataset?.sku || '',
-          incoming_id: sel.value,
-          batch_number: sel.dataset.batch_number || '',
-          qty_kg: 0,
-          qty_sak: 0,
-          lot_number: qty501
+        const proceedAdd = (qtyToUse) => {
+          const productOpt = Array.from(datalistOutgoing?.options || []).find(o => o.dataset.id === pid);
+          const item = {
+            product_id: pid,
+            product_name: productOpt?.value || '',
+            sku: productOpt?.dataset?.sku || '',
+            incoming_id: sel.value,
+            batch_number: sel.dataset.batch_number || '',
+            qty_kg: 0,
+            qty_sak: 0,
+            lot_number: qtyToUse
+          };
+          embedded501Items.push(item);
+          renderEmbedded501List();
+
+          // Decrement sisa on selected option after Add
+          const base = Number.parseFloat((sel.dataset.sisaBase || sel.dataset.sisa || '0').toString().replace(',', '.')) || 0;
+          let remain = Math.max(0, base - qtyToUse);
+          remain = Math.round(remain * 1000) / 1000;
+          sel.dataset.sisaBase = String(remain);
+          sel.dataset.sisaBaseRaw = String(remain);
+          sel.dataset.sisa = String(remain);
+          sel.dataset.sisa_raw = String(remain);
+          update501OptionLabel(sel);
+          if (sisaDisplay501) sisaDisplay501.value = String(remain).replace('.', ',');
+          if (qty501Input) { qty501Input.value = ''; qty501Input.max = String(remain); qty501Input.classList.remove('is-invalid'); }
+          if (remain <= 0) { sel.disabled = true; }
         };
-        embedded501Items.push(item);
-        renderEmbedded501List();
 
-        // Decrement sisa on selected option after Add (not on typing)
-        const base = Number.parseFloat((sel.dataset.sisaBase || sel.dataset.sisa || '0').toString().replace(',', '.')) || 0;
-        let remain = Math.max(0, base - qty501);
-        remain = Math.round(remain * 1000) / 1000;
-        sel.dataset.sisaBase = String(remain);
-        sel.dataset.sisaBaseRaw = String(remain);
-        sel.dataset.sisa = String(remain);
-        sel.dataset.sisa_raw = String(remain);
-        update501OptionLabel(sel);
-        if (sisaDisplay501) sisaDisplay501.value = String(remain).replace('.', ',');
-        if (qty501Input) { qty501Input.value = ''; qty501Input.max = String(remain); }
-        if (remain <= 0) { sel.disabled = true; }
+        if (qtyReq > sisaBefore) {
+          const kekurangan = Math.max(0, qtyReq - sisaBefore);
+          const kekuranganDisplay = formatAngkaJS(kekurangan);
+          const sisaDisplay = formatAngkaJS(sisaBefore);
+          Swal?.fire?.({
+            icon: 'info',
+            title: 'Qty melebihi sisa 501',
+            html: `Hanya <strong>${sisaDisplay} Kg</strong> yang akan ditambahkan.<br>Masih ada kekurangan <strong>${kekuranganDisplay} Kg</strong>.`,
+            showCancelButton: true,
+            confirmButtonText: 'Salin Kekurangan',
+            cancelButtonText: 'OK'
+          }).then((result) => {
+            if (result?.isConfirmed) {
+              try { navigator.clipboard?.writeText(String(kekurangan)); } catch {}
+            }
+            proceedAdd(sisaBefore);
+          });
+          return;
+        }
+
+        proceedAdd(qtyReq);
       });
 
       if (items501Tbody) {
