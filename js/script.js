@@ -2058,7 +2058,7 @@ document.addEventListener("DOMContentLoaded", () => {
       addItem501Btn.addEventListener('click', () => {
         const pid = productId501Hidden?.value;
         const sel = batchSelect501?.options[batchSelect501.selectedIndex];
-        const qty501 = Number.parseFloat(qty501Input?.value || '0');
+        const qty501 = Number.parseFloat((qty501Input?.value || '0').toString().replace(',', '.'));
         if (!pid) { Swal?.fire?.('Oops...', 'Pilih Nama Barang 501 terlebih dahulu.', 'warning'); return; }
         if (!sel || !sel.value) { Swal?.fire?.('Oops...', 'Pilih Batch 501 terlebih dahulu.', 'warning'); return; }
         if (!(qty501 > 0)) { Swal?.fire?.('Oops...', 'Masukkan jumlah 501 (Kg) yang valid.', 'warning'); return; }
