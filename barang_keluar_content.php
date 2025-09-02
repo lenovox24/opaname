@@ -92,9 +92,12 @@ if (!empty($batch_query)) {
     $params[':batch_number'] = '%' . $batch_query . '%';
 }
 
+// Untuk tabel utama, eksklusi item 501 (lot_number > 0)
+$sql_base_main = $sql_base . " AND (t.lot_number IS NULL OR t.lot_number = 0)";
+
 // Aggregasi tampilan utama: gabung item per (tanggal, dokumen, keterangan, produk) dan jumlahkan qty
 // Hitung jumlah grup untuk pagination
-$sql_count_groups = "SELECT COUNT(*) FROM (SELECT 1 " . $sql_base . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id) g";
+$sql_count_groups = "SELECT COUNT(*) FROM (SELECT 1 " . $sql_base_main . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id) g";
 $stmt_count = $pdo->prepare($sql_count_groups);
 $stmt_count->execute($params);
 $total_rows = (int)$stmt_count->fetchColumn();
@@ -117,7 +120,7 @@ $sql_transactions = "SELECT
     SUM(CASE WHEN t.lot_number IS NULL THEN 0 ELSE t.lot_number END) AS sum_lot_number,
     COUNT(DISTINCT t.incoming_transaction_id) AS batch_count,
     CASE WHEN MIN(t.status) = MAX(t.status) THEN MIN(t.status) ELSE 'Mixed' END AS status_group
-" . $sql_base . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id, p.product_name, p.sku ORDER BY $order_sql LIMIT :limit OFFSET :offset";
+" . $sql_base_main . " GROUP BY t.transaction_date, t.document_number, t.description, t.product_id, p.product_name, p.sku ORDER BY $order_sql LIMIT :limit OFFSET :offset";
 
 $stmt_transactions = $pdo->prepare($sql_transactions);
 foreach ($params as $key => $val) {
