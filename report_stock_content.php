@@ -24,6 +24,10 @@ $total_summary = [
     'stock_akhir_kg' => 0, 'stock_akhir_sak' => 0
 ];
 
+// Ringkasan akhir periode & sisa per batch
+$period_summary = [ 'akhir_kg' => 0, 'akhir_sak' => 0 ];
+$batch_remains = [];
+
 // Prefetch selected product if product_id provided, so the info block can always be shown
 if (!empty($product_id) && $selected_product === null) {
     try {
@@ -121,6 +125,62 @@ if ($should_generate) {
                 
                 $current->add(new DateInterval('P1D'));
             }
+
+            // Hitung stok akhir pada akhir periode (<= end_date)
+            $stmt_sum_in = $pdo->prepare("SELECT COALESCE(SUM(quantity_kg),0) AS kg, COALESCE(SUM(quantity_sacks),0) AS sak FROM incoming_transactions WHERE product_id = ? AND transaction_date <= ?");
+            $stmt_sum_in->execute([$product_id, $end_date]);
+            $sum_in = $stmt_sum_in->fetch(PDO::FETCH_ASSOC) ?: ['kg' => 0, 'sak' => 0];
+
+            $stmt_sum_out = $pdo->prepare("SELECT COALESCE(SUM(quantity_kg),0) AS kg, COALESCE(SUM(quantity_sacks),0) AS sak FROM outgoing_transactions WHERE product_id = ? AND transaction_date <= ?");
+            $stmt_sum_out->execute([$product_id, $end_date]);
+            $sum_out = $stmt_sum_out->fetch(PDO::FETCH_ASSOC) ?: ['kg' => 0, 'sak' => 0];
+
+            $period_summary['akhir_kg'] = (float)($sum_in['kg'] ?? 0) - (float)($sum_out['kg'] ?? 0);
+            $period_summary['akhir_sak'] = (float)($sum_in['sak'] ?? 0) - (float)($sum_out['sak'] ?? 0);
+
+            // Sisa per batch pada akhir periode, termasuk sisa 501 dengan fallback batch_number
+            $sql_batch = "
+                SELECT
+                    t_in.id,
+                    t_in.transaction_date,
+                    t_in.batch_number,
+                    t_in.quantity_kg,
+                    t_in.quantity_sacks,
+                    t_in.lot_number,
+                    -- total keluar biasa (kg, sak) by incoming id
+                    COALESCE((SELECT SUM(o.quantity_kg) FROM outgoing_transactions o WHERE o.incoming_transaction_id = t_in.id AND o.transaction_date <= ?), 0) AS out_kg,
+                    COALESCE((SELECT SUM(o.quantity_sacks) FROM outgoing_transactions o WHERE o.incoming_transaction_id = t_in.id AND o.transaction_date <= ?), 0) AS out_sak,
+                    -- total keluar 501 by incoming id
+                    COALESCE((SELECT SUM(o.lot_number) FROM outgoing_transactions o WHERE o.lot_number > 0 AND o.incoming_transaction_id = t_in.id AND o.transaction_date <= ?), 0) AS out_501_in,
+                    -- fallback total keluar 501 by batch when incoming_id is null/0
+                    COALESCE((
+                        SELECT SUM(o2.lot_number) FROM outgoing_transactions o2
+                        WHERE o2.lot_number > 0 AND (o2.incoming_transaction_id IS NULL OR o2.incoming_transaction_id = 0)
+                          AND o2.batch_number = t_in.batch_number AND o2.product_id = t_in.product_id AND o2.transaction_date <= ?
+                    ), 0) AS out_501_batch
+                FROM incoming_transactions t_in
+                WHERE t_in.product_id = ?
+                ORDER BY t_in.transaction_date ASC, t_in.id ASC
+            ";
+
+            $stmt_batch = $pdo->prepare($sql_batch);
+            $stmt_batch->execute([$end_date, $end_date, $end_date, $end_date, $product_id]);
+            $rows = $stmt_batch->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            foreach ($rows as $r) {
+                $sisa_kg = (float)$r['quantity_kg'] - (float)$r['out_kg'];
+                $sisa_sak = (float)$r['quantity_sacks'] - (float)$r['out_sak'];
+                $total_out_501 = (float)$r['out_501_in'] + (float)$r['out_501_batch'];
+                $sisa_501 = (float)$r['lot_number'] - $total_out_501;
+                if ($sisa_kg > 0 || $sisa_sak > 0 || $sisa_501 > 0) {
+                    $batch_remains[] = [
+                        'batch_number' => $r['batch_number'],
+                        'transaction_date' => $r['transaction_date'],
+                        'sisa_kg' => $sisa_kg,
+                        'sisa_sak' => $sisa_sak,
+                        'sisa_501' => $sisa_501
+                    ];
+                }
+            }
         }
     } catch (Exception $e) {
         // Silent error handling
@@ -190,6 +250,20 @@ if ($should_generate) {
             if ($show_results): 
             ?>
                 <?php if ($selected_product): ?>
+                    <!-- Ringkasan Akhir Periode -->
+                    <div class="alert alert-info">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-clipboard-data me-2"></i>
+                            <div>
+                                <div class="fw-semibold">Stock Akhir Periode (s/d <?= htmlspecialchars($end_date) ?>)</div>
+                                <div>
+                                    Kg: <strong><?= number_format($period_summary['akhir_kg'], 2, '.', ',') ?></strong>
+                                    &nbsp; | &nbsp;
+                                    Sak: <strong><?= number_format($period_summary['akhir_sak'], 2, '.', ',') ?></strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <!-- Report Table -->
                     <div class="table-responsive">
                         <table class="table table-bordered table-hover">
@@ -253,6 +327,48 @@ if ($should_generate) {
                                 </tfoot>
                             <?php endif; ?>
                         </table>
+                    </div>
+
+                    <!-- Sisa per Batch (Akhir Periode) -->
+                    <div class="card mt-4">
+                        <div class="card-header bg-warning">
+                            <h6 class="mb-0 fw-bold"><i class="bi bi-collection me-2"></i>Sisa per Batch (Akhir Periode)</h6>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-bordered mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th class="text-center" style="width: 12%">Tgl Datang</th>
+                                            <th class="text-start">Batch</th>
+                                            <th class="text-end" style="width: 18%">Sisa Stok (Kg)</th>
+                                            <th class="text-end" style="width: 18%">Sisa Stok (Sak)</th>
+                                            <th class="text-end" style="width: 18%">Sisa 501 (Kg)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php if (!empty($batch_remains)): ?>
+                                            <?php foreach ($batch_remains as $b): ?>
+                                                <tr>
+                                                    <td class="text-center"><?= htmlspecialchars($b['transaction_date']) ?></td>
+                                                    <td class="text-start"><span class="badge bg-info text-white"><?= htmlspecialchars($b['batch_number'] ?: '-') ?></span></td>
+                                                    <td class="text-end fw-semibold"><?= number_format(max(0, $b['sisa_kg']), 2, '.', ',') ?></td>
+                                                    <td class="text-end fw-semibold"><?= number_format(max(0, $b['sisa_sak']), 2, '.', ',') ?></td>
+                                                    <td class="text-end fw-semibold text-success"><?= number_format(max(0, $b['sisa_501']), 2, '.', ',') ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php else: ?>
+                                            <tr>
+                                                <td colspan="5" class="text-center text-muted p-4">
+                                                    <i class="bi bi-inbox display-6 d-block mb-2 opacity-50"></i>
+                                                    Tidak ada sisa per batch pada akhir periode.
+                                                </td>
+                                            </tr>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 <?php else: ?>
                     <div class="alert alert-danger">
